@@ -1,40 +1,50 @@
-name: Deploy Node.js app to EC2
+name: Deploy to EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Checkout
+      uses: actions/checkout@v3
 
-      # 2️⃣ Setup SSH manually
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+    # 🔐 Setup SSH
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      # 3️⃣ Copy files to EC2
-      - name: Sync files to EC2
-        run: |
-          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ secrets.APP_PATH }}
+    # 🗂️ Create APP folder on EC2
+    - name: Create directory on EC2
+      run: |
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "mkdir -p ${{ secrets.APP_PATH }}"
 
-      # 4️⃣ Install dependencies and start app with PM2
-      - name: Install & restart Node.js app
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            cd ${{ secrets.APP_PATH }} &&
-            rm -rf node_modules package-lock.json &&
-            npm install &&
-            pm2 stop simple-web-server || true &&
-            pm2 start server.js --name simple-web-server &&
-            pm2 save
-          "
+    # 📤 Upload files to EC2
+    - name: Upload files using rsync
+      run: |
+        rsync -avz --delete \
+          -e "ssh -o StrictHostKeyChecking=no" \
+          ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ secrets.APP_PATH }}
+
+    # 🚀 Install & restart app
+    - name: Install & restart Node.js app
+      run: |
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+          cd ${{ secrets.APP_PATH }} &&
+          echo '📦 Checking project files...' &&
+          ls -la &&
+          
+          echo '📦 Installing dependencies...' &&
+          npm install || exit 1 &&
+
+          echo '🚀 Restarting PM2...' &&
+          pm2 stop simple-web-server || true &&
+          pm2 start server.js --name simple-web-server &&
+          pm2 save
+        "
